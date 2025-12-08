@@ -1756,9 +1756,6 @@ def main():
                 )
             else:
                 st.info("No high-automation tasks found in this dataset.")
-            
-            else:
-                st.error("❌ Could not load detailed CSV data.")
 
 
 if __name__ == "__main__":
