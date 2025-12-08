@@ -918,7 +918,7 @@ def main():
         
         with st.expander("📋 **OGC Benchmark Categories**", expanded=False):
             st.markdown("""
-            ### Rimon Benchmark Classification
+            ### OGC Benchmark Classification
             
             #### 🟢 100% Automatable (Two Categories)
             
