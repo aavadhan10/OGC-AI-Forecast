@@ -651,10 +651,10 @@ def main():
             )
         
         with col4:
-            unique_matters = filtered_df['Matter ID'].nunique()
+            unique_clients = filtered_df['Client Name'].nunique()
             st.metric(
-                label="Unique Matters",
-                value=f"{unique_matters:,}"
+                label="Unique Clients",
+                value=f"{unique_clients:,}"
             )
         
         st.markdown("---")
@@ -882,7 +882,7 @@ def main():
             **📈 Average Matter Automation:**
             - {avg_automation:.1f}% automation potential
             - Based on {len(filtered_df):,} time entries
-            - Across {unique_matters:,} matters
+            - Across {unique_clients:,} clients
             """)
         
         with col3:
