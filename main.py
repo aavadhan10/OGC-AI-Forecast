@@ -156,7 +156,7 @@ def main():
         csv_path = './data/SIX_FULL_MOS.csv'
         import os
         if not os.path.exists(csv_path):
-            csv_path = '/mnt/user-data/uploads/SIX_FULL_MOS.csv'
+            csv_path = 'SIX_FULL_MOS.csv'
         
         df = load_data(csv_path)
         st.sidebar.success(f"✅ Loaded {len(df):,} time entries")
