@@ -331,30 +331,10 @@ def classify_task_description(description):
     return 'General-Communication', 0.50
 
 @st.cache_data
-def load_detailed_data(csv_path):
-    """Load detailed task description CSV"""
-    try:
-        df = pd.read_csv(csv_path, skiprows=2, encoding='utf-8-sig')
-        df.columns = df.columns.str.replace('\n', ' ').str.strip()
-        column_mapping = {'Entry Date': 'Date', 'Billable Time': 'Hours', 'Total Time': 'Total_Hours', 'Billable Amt': 'Billable_Amount', 'User': 'User_Name'}
-        df = df.rename(columns=column_mapping)
-        df['Date'] = pd.to_datetime(df['Date'], format='%m/%d/%Y', errors='coerce')
-        df['Hours'] = pd.to_numeric(df['Hours'], errors='coerce').fillna(0)
-        df['Year'], df['Month'] = df['Date'].dt.year, df['Date'].dt.month
-        df['Month_Name'], df['Quarter'] = df['Date'].dt.strftime('%B'), df['Date'].dt.quarter
-        df['Description'] = df['Description'].fillna('Unknown')
-        return df
-    except Exception as e:
-        st.error(f"Could not load detailed CSV: {str(e)}")
-        return None
-
 def check_for_detailed_csv():
-    """Check if detailed CSV exists"""
-    import os
-    for path in ['./data/matter_description.csv', '/mnt/user-data/uploads/matter_description.csv', './matter_description.csv']:
-        if os.path.exists(path):
-            return path
-    return None
+    """OGC has descriptions in main CSV - always return True"""
+    # OGC includes task descriptions in SIX_FULL_MOS.csv, not a separate file
+    return True
 
 def classify_matter_legalbench(matter_name):
     """Classify a matter using LegalBench framework"""
@@ -565,27 +545,18 @@ def main():
     
     # Main tabs
     # Check for detailed CSV
+    # OGC always has task descriptions in main CSV
     detailed_csv_path = check_for_detailed_csv()
-    has_detailed_data = detailed_csv_path is not None
+    has_detailed_data = True  # Always True for OGC
     
-    if has_detailed_data:
-        st.sidebar.success("✨ Task-level data detected! Check the 'Task-Level Deep Dive' tab.")
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-            "📈 Overview (LegalBench)", 
-            "🎯 OLI Benchmark",
-            "💰 Cost Savings", 
-            "🔮 Predictions",
-            "📚 Category Definitions",
-            "🔬 Task-Level Deep Dive"
-        ])
-    else:
-        st.sidebar.info("💡 Add `matter_description.csv` to data folder for task-level analysis!")
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    st.sidebar.success("✨ Task descriptions available! Check the 'Task-Level Deep Dive' tab.")
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📈 Overview (LegalBench)", 
-        "🎯 Rimon Benchmark",
+        "🎯 OLI Benchmark",
         "💰 Cost Savings", 
         "🔮 Predictions",
-        "📚 Category Definitions"
+        "📚 Category Definitions",
+        "🔬 Task-Level Deep Dive"
     ])
     
     # TAB 1: Overview
@@ -1574,29 +1545,33 @@ def main():
             st.info("""
             💡 **What This Tab Shows:**
             
-            This is a **deep dive into October 2025** using detailed task descriptions. 
-            October's data is already included in the Jan-Oct totals in the other tabs.
+            This analyzes ALL your time entries using detailed task descriptions from the Description column.
             
             This tab demonstrates:
             - How much MORE PRECISE we can be with detailed task descriptions
             - What automation looks like at the task level vs matter level
-            - A model for future analysis if you export detailed descriptions for all months
+            - Ultra-granular analysis of your actual work
             """)
             
-            # Load detailed data
-            with st.spinner("🔬 Loading October detailed task data..."):
-                detailed_df = load_detailed_data(detailed_csv_path)
-            
-            if detailed_df is not None and len(detailed_df) > 0:
-                # Classify tasks
-                st.info(f"📊 Analyzing {len(detailed_df):,} detailed task entries...")
-                detailed_df[['Task_Type', 'Task_Automation']] = detailed_df['Description'].apply(
-                    lambda x: pd.Series(classify_task_description(x))
-                )
+            # Use the main filtered dataframe (it already has Description column)
+            with st.spinner("🔬 Analyzing task descriptions..."):
+                detailed_df = filtered_df.copy()
                 
-                # Calculate automatable hours
-                detailed_df['Task_Automatable_Hours'] = detailed_df['Hours'] * detailed_df['Task_Automation']
-                detailed_df['Task_Manual_Hours'] = detailed_df['Hours'] - detailed_df['Task_Automatable_Hours']
+                # Classify tasks if not already done
+                if 'Task_Type' not in detailed_df.columns:
+                    detailed_df[['Task_Type', 'Task_Automation']] = detailed_df['Description'].apply(
+                        lambda x: pd.Series(classify_task_description(x))
+                    )
+                    detailed_df['Task_Automatable_Hours'] = detailed_df['Billable Hours'] * detailed_df['Task_Automation']
+                    detailed_df['Task_Manual_Hours'] = detailed_df['Billable Hours'] - detailed_df['Task_Automatable_Hours']
+            
+            # Classify tasks
+            st.info(f"📊 Analyzing {len(detailed_df):,} detailed task entries...")
+            
+            # Calculate automatable hours (if not already done)
+            if 'Task_Automatable_Hours' not in detailed_df.columns:
+                detailed_df['Task_Automatable_Hours'] = detailed_df['Billable Hours'] * detailed_df['Task_Automation']
+                detailed_df['Task_Manual_Hours'] = detailed_df['Billable Hours'] - detailed_df['Task_Automatable_Hours']
                 
                 # Key metrics
                 st.markdown("---")
@@ -1604,7 +1579,7 @@ def main():
                 
                 col1, col2, col3, col4 = st.columns(4)
                 
-                task_total = detailed_df['Hours'].sum()
+                task_total = detailed_df['Billable Hours'].sum()
                 task_auto = detailed_df['Task_Automatable_Hours'].sum()
                 task_rate = (task_auto / task_total * 100) if task_total > 0 else 0
                 
@@ -1644,7 +1619,7 @@ def main():
                 st.subheader("🎯 Automation by Task Type")
                 
                 task_breakdown = detailed_df.groupby('Task_Type').agg({
-                    'Hours': 'sum',
+                    'Billable Hours': 'sum',
                     'Task_Automatable_Hours': 'sum',
                     'Task_Automation': 'first'
                 }).reset_index()
@@ -1671,7 +1646,7 @@ def main():
                     fig = go.Figure()
                     fig.add_trace(go.Bar(
                         y=task_breakdown.head(12)['Task_Type'],
-                        x=task_breakdown.head(12)['Hours'],
+                        x=task_breakdown.head(12)['Billable Hours'],
                         name='Total Hours',
                         orientation='h',
                         marker_color='lightblue'
@@ -1703,12 +1678,12 @@ def main():
                 
                 if sample_tasks:
                     sample_df = pd.concat(sample_tasks)
-                    display_cols = ['Description', 'Task_Type', 'Task_Automation', 'Hours']
+                    display_cols = ['Description', 'Task_Type', 'Task_Automation', 'Billable Hours']
                     
                     st.dataframe(
                         sample_df[display_cols].style.format({
                             'Task_Automation': '{:.0%}',
-                            'Hours': '{:.2f}'
+                            'Billable Hours': '{:.2f}'
                         }),
                         use_container_width=True,
                         height=400
@@ -1765,16 +1740,16 @@ def main():
                 st.subheader("🎯 Top Automation Opportunities (Task-Level)")
                 
                 high_auto_tasks = detailed_df[detailed_df['Task_Automation'] >= 0.85].groupby('Description').agg({
-                    'Hours': 'sum',
+                    'Billable Hours': 'sum',
                     'Task_Automation': 'first'
-                }).reset_index().sort_values('Hours', ascending=False).head(20)
+                }).reset_index().sort_values('Billable Hours', ascending=False).head(20)
                 
                 if len(high_auto_tasks) > 0:
                     st.write(f"**{len(high_auto_tasks)} high-automation tasks (≥85%) with most hours:**")
                     st.dataframe(
                         high_auto_tasks.style.format({
                             'Task_Automation': '{:.0%}',
-                            'Hours': '{:.1f}'
+                            'Billable Hours': '{:.1f}'
                         }),
                         use_container_width=True,
                         height=400
