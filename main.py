@@ -358,7 +358,7 @@ def classify_matter_legalbench(matter_name):
         return 'General-Matters', 0.65
 
 def classify_matter_oli(matter_name):
-    """Classify a matter using Rimon OLI Benchmark"""
+    """Classify a matter using  OLI Benchmark"""
     if pd.isna(matter_name):
         return 'Unclassified', 0.0
     
@@ -565,7 +565,7 @@ def main():
         
         st.markdown("""
         ### 🎯 Understanding AI Automation Potential
-        This analysis is based on the **LegalBench framework** adapted for Rimon's matter-based time entries. 
+        This analysis is based on the **LegalBench framework** adapted for OGC's matter-based time entries. 
         Each matter type has been assigned an automation potential based on current AI capabilities.
         
         **Note:** *Fixed fee entries are counted as 1 hour for analysis purposes. Analysis based on Jan 2024-Nov 2025 data.*
@@ -897,18 +897,18 @@ def main():
     
     # TAB 2: Rimon Benchmark
     with tab2:
-        st.header("🎯 Rimon Benchmark - Custom Practice Area Analysis")
+        st.header("🎯 OGC Benchmark - Custom Practice Area Analysis")
         
         st.markdown("""
-        ### 📊 Rimon's AI Automation Assessment
-        This tab uses **Rimon Benchmark** - a custom assessment tailored to Rimon's specific 
+        ### 📊 OGC AI Automation Assessment
+        This tab uses **OGC Benchmark** - a custom assessment tailored to OGC's specific 
         practice areas and matter types.
         
         **Note:** *Fixed fee entries are counted as 1 hour for analysis purposes.*
         """)
         
         # Classify using Rimon OLI
-        with st.spinner("🤖 Analyzing using Rimon Benchmark..."):
+        with st.spinner("🤖 Analyzing using OGC Benchmark..."):
             filtered_df[['OLI_Category', 'OLI_Automation_Potential']] = filtered_df['Matter Name'].apply(
                 lambda x: pd.Series(classify_matter_oli(x))
             )
@@ -916,7 +916,7 @@ def main():
         filtered_df['OLI_Automatable_Hours'] = filtered_df['Billable Hours'] * filtered_df['OLI_Automation_Potential']
         filtered_df['OLI_Manual_Hours'] = filtered_df['Billable Hours'] - filtered_df['OLI_Automatable_Hours']
         
-        with st.expander("📋 **Rimon Benchmark Categories**", expanded=False):
+        with st.expander("📋 **OGC Benchmark Categories**", expanded=False):
             st.markdown("""
             ### Rimon Benchmark Classification
             
@@ -968,7 +968,7 @@ def main():
         st.markdown("---")
         
         # Rimon metrics
-        st.subheader("📈 Rimon Benchmark Metrics")
+        st.subheader("📈 OGC Benchmark Metrics")
         
         col1, col2, col3, col4 = st.columns(4)
         
@@ -1009,7 +1009,7 @@ def main():
         st.markdown("---")
         
         # Rimon visualization
-        st.subheader("💰 Rimon Benchmark Distribution")
+        st.subheader("💰 OGC Benchmark Distribution")
         
         col1, col2 = st.columns([3, 2])
         
@@ -1045,7 +1045,7 @@ def main():
             ))
             
             fig.update_layout(
-                title='Rimon Benchmark: Monthly Distribution',
+                title='OGC Benchmark: Monthly Distribution',
                 height=400,
                 hovermode='x unified'
             )
@@ -1076,7 +1076,7 @@ def main():
         st.markdown("---")
         
         # Category breakdown
-        st.subheader("📊 Hours by Rimon Automation Tier")
+        st.subheader("📊 Hours by OGC Automation Tier")
         
         oli_categories = filtered_df[filtered_df['OLI_Category'] != 'Unclassified'].groupby('OLI_Category').agg({
             'Billable Hours': 'sum',
@@ -1107,7 +1107,7 @@ def main():
             ))
             
             fig.update_layout(
-                title='Hours by Rimon Category',
+                title='Hours by OGC Category',
                 height=450,
                 barmode='overlay'
             )
@@ -1486,7 +1486,7 @@ def main():
         st.header("📚 LegalBench Practice Area Definitions")
         
         st.markdown("""
-        Based on the **LegalBench framework** adapted for Rimon's matter-based time tracking.
+        Based on the **LegalBench framework** adapted for OGC time tracking.
         """)
         
         for category, info in LEGALBENCH_TASKS.items():
