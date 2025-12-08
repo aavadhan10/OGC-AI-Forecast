@@ -489,7 +489,7 @@ def main():
         return
     
     st.markdown('<h1 class="main-header">⚖️ OGC Legal AI Automation Dashboard</h1>', unsafe_allow_html=True)
-    st.markdown("### Outside GC - AI-Powered Efficiency Analysis (Jan-Sep 2024)")
+    st.markdown("### Outside GC - AI-Powered Efficiency Analysis (Jan 2024-Nov 2025)")
     
     # Sidebar with logout option
     st.sidebar.title("📊 Dashboard Controls")
@@ -568,7 +568,7 @@ def main():
         This analysis is based on the **LegalBench framework** adapted for Rimon's matter-based time entries. 
         Each matter type has been assigned an automation potential based on current AI capabilities.
         
-        **Note:** *Fixed fee entries are counted as 1 hour for analysis purposes. Analysis based on Jan-Sep 2024 data.*
+        **Note:** *Fixed fee entries are counted as 1 hour for analysis purposes. Analysis based on Jan 2024-Nov 2025 data.*
         """)
         
         with st.expander("📊 **How We Calculate Your Automation Potential**", expanded=False):
@@ -1271,14 +1271,14 @@ def main():
                 line=dict(color='green', width=3)
             ))
             fig.update_layout(
-                title='Cumulative Cost Savings (Jan-Sep 2024)',
+                title='Cumulative Cost Savings (Jan 2024-Nov 2025)',
                 height=400
             )
             st.plotly_chart(fig, use_container_width=True)
     
     # TAB 4: Predictions
     with tab4:
-        st.header("🔮 2025 Full Year Projections")
+        st.header("🔮 2025 Projections (Jan 2024-Nov 2025 Data)")
         
         current_data = filtered_df[filtered_df['Year'] == 2025]
         
@@ -1572,190 +1572,190 @@ def main():
             if 'Task_Automatable_Hours' not in detailed_df.columns:
                 detailed_df['Task_Automatable_Hours'] = detailed_df['Billable Hours'] * detailed_df['Task_Automation']
                 detailed_df['Task_Manual_Hours'] = detailed_df['Billable Hours'] - detailed_df['Task_Automatable_Hours']
+            
+            # Key metrics
+            st.markdown("---")
+            st.subheader("📊 Task-Level Metrics")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            task_total = detailed_df['Billable Hours'].sum()
+            task_auto = detailed_df['Task_Automatable_Hours'].sum()
+            task_rate = (task_auto / task_total * 100) if task_total > 0 else 0
+            
+            with col1:
+                st.metric(
+                    label="Total Hours Analyzed",
+                    value=f"{task_total:,.0f}",
+                    help="From detailed task descriptions"
+                )
+            
+            with col2:
+                st.metric(
+                    label="AI-Automatable (Task-Level)",
+                    value=f"{task_auto:,.0f}",
+                    delta=f"{task_rate:.1f}%",
+                    help="Based on specific task descriptions"
+                )
+            
+            with col3:
+                avg_task_auto = detailed_df['Task_Automation'].mean() * 100
+                st.metric(
+                    label="Avg Task Automation",
+                    value=f"{avg_task_auto:.1f}%",
+                    help="Average automation potential per task"
+                )
+            
+            with col4:
+                unique_tasks = detailed_df['Task_Type'].nunique()
+                st.metric(
+                    label="Unique Task Types",
+                    value=f"{unique_tasks}"
+                )
+            
+            st.markdown("---")
+            
+            # Task type breakdown
+            st.subheader("🎯 Automation by Task Type")
+            
+            task_breakdown = detailed_df.groupby('Task_Type').agg({
+                'Billable Hours': 'sum',
+                'Task_Automatable_Hours': 'sum',
+                'Task_Automation': 'first'
+            }).reset_index()
+            task_breakdown = task_breakdown.sort_values('Task_Automatable_Hours', ascending=False)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                fig = px.bar(
+                    task_breakdown.head(12),
+                    x='Task_Automatable_Hours',
+                    y='Task_Type',
+                    orientation='h',
+                    title='Top 12 Task Types by Automatable Hours',
+                    color='Task_Automation',
+                    color_continuous_scale='RdYlGn',
+                    text='Task_Automatable_Hours'
+                )
+                fig.update_traces(texttemplate='%{text:.0f}h', textposition='outside')
+                fig.update_layout(height=500, yaxis={'categoryorder': 'total ascending'})
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                fig = go.Figure()
+                fig.add_trace(go.Bar(
+                    y=task_breakdown.head(12)['Task_Type'],
+                    x=task_breakdown.head(12)['Billable Hours'],
+                    name='Total Hours',
+                    orientation='h',
+                    marker_color='lightblue'
+                ))
+                fig.add_trace(go.Bar(
+                    y=task_breakdown.head(12)['Task_Type'],
+                    x=task_breakdown.head(12)['Task_Automatable_Hours'],
+                    name='Automatable',
+                    orientation='h',
+                    marker_color='darkgreen'
+                ))
+                fig.update_layout(
+                    title='Total vs Automatable Hours',
+                    height=500,
+                    barmode='overlay',
+                    yaxis={'categoryorder': 'total ascending'}
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            st.markdown("---")
+            
+            # Sample tasks
+            st.subheader("📝 Sample Task Classifications")
+            
+            sample_tasks = []
+            for task_type in task_breakdown.head(10)['Task_Type']:
+                sample = detailed_df[detailed_df['Task_Type'] == task_type].head(2)
+                sample_tasks.append(sample)
+            
+            if sample_tasks:
+                sample_df = pd.concat(sample_tasks)
+                display_cols = ['Description', 'Task_Type', 'Task_Automation', 'Billable Hours']
                 
-                # Key metrics
-                st.markdown("---")
-                st.subheader("📊 Task-Level Metrics")
-                
-                col1, col2, col3, col4 = st.columns(4)
-                
-                task_total = detailed_df['Billable Hours'].sum()
-                task_auto = detailed_df['Task_Automatable_Hours'].sum()
-                task_rate = (task_auto / task_total * 100) if task_total > 0 else 0
-                
-                with col1:
-                    st.metric(
-                        label="Total Hours Analyzed",
-                        value=f"{task_total:,.0f}",
-                        help="From detailed task descriptions"
-                    )
-                
-                with col2:
-                    st.metric(
-                        label="AI-Automatable (Task-Level)",
-                        value=f"{task_auto:,.0f}",
-                        delta=f"{task_rate:.1f}%",
-                        help="Based on specific task descriptions"
-                    )
-                
-                with col3:
-                    avg_task_auto = detailed_df['Task_Automation'].mean() * 100
-                    st.metric(
-                        label="Avg Task Automation",
-                        value=f"{avg_task_auto:.1f}%",
-                        help="Average automation potential per task"
-                    )
-                
-                with col4:
-                    unique_tasks = detailed_df['Task_Type'].nunique()
-                    st.metric(
-                        label="Unique Task Types",
-                        value=f"{unique_tasks}"
-                    )
-                
-                st.markdown("---")
-                
-                # Task type breakdown
-                st.subheader("🎯 Automation by Task Type")
-                
-                task_breakdown = detailed_df.groupby('Task_Type').agg({
-                    'Billable Hours': 'sum',
-                    'Task_Automatable_Hours': 'sum',
-                    'Task_Automation': 'first'
-                }).reset_index()
-                task_breakdown = task_breakdown.sort_values('Task_Automatable_Hours', ascending=False)
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    fig = px.bar(
-                        task_breakdown.head(12),
-                        x='Task_Automatable_Hours',
-                        y='Task_Type',
-                        orientation='h',
-                        title='Top 12 Task Types by Automatable Hours',
-                        color='Task_Automation',
-                        color_continuous_scale='RdYlGn',
-                        text='Task_Automatable_Hours'
-                    )
-                    fig.update_traces(texttemplate='%{text:.0f}h', textposition='outside')
-                    fig.update_layout(height=500, yaxis={'categoryorder': 'total ascending'})
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                with col2:
-                    fig = go.Figure()
-                    fig.add_trace(go.Bar(
-                        y=task_breakdown.head(12)['Task_Type'],
-                        x=task_breakdown.head(12)['Billable Hours'],
-                        name='Total Hours',
-                        orientation='h',
-                        marker_color='lightblue'
-                    ))
-                    fig.add_trace(go.Bar(
-                        y=task_breakdown.head(12)['Task_Type'],
-                        x=task_breakdown.head(12)['Task_Automatable_Hours'],
-                        name='Automatable',
-                        orientation='h',
-                        marker_color='darkgreen'
-                    ))
-                    fig.update_layout(
-                        title='Total vs Automatable Hours',
-                        height=500,
-                        barmode='overlay',
-                        yaxis={'categoryorder': 'total ascending'}
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                st.markdown("---")
-                
-                # Sample tasks
-                st.subheader("📝 Sample Task Classifications")
-                
-                sample_tasks = []
-                for task_type in task_breakdown.head(10)['Task_Type']:
-                    sample = detailed_df[detailed_df['Task_Type'] == task_type].head(2)
-                    sample_tasks.append(sample)
-                
-                if sample_tasks:
-                    sample_df = pd.concat(sample_tasks)
-                    display_cols = ['Description', 'Task_Type', 'Task_Automation', 'Billable Hours']
-                    
-                    st.dataframe(
-                        sample_df[display_cols].style.format({
-                            'Task_Automation': '{:.0%}',
-                            'Billable Hours': '{:.2f}'
-                        }),
-                        use_container_width=True,
-                        height=400
-                    )
-                
-                st.markdown("---")
-                
-                # Comparison
-                st.subheader("📊 Task-Level vs Matter-Level Comparison")
-                
-                st.warning("""
-                **⚠️ Important:** Both analyses use the SAME October 2025 data:
-                - Task-Level (this tab): October analyzed by detailed task descriptions
-                - Matter-Level (main tabs): October analyzed by matter names only
-                - The October data is already included in the Jan-Oct totals shown in other tabs
+                st.dataframe(
+                    sample_df[display_cols].style.format({
+                        'Task_Automation': '{:.0%}',
+                        'Billable Hours': '{:.2f}'
+                    }),
+                    use_container_width=True,
+                    height=400
+                )
+            
+            st.markdown("---")
+            
+            # Comparison
+            st.subheader("📊 Task-Level vs Matter-Level Comparison")
+            
+            st.warning("""
+            **⚠️ Important:** Both analyses use the SAME October 2025 data:
+            - Task-Level (this tab): October analyzed by detailed task descriptions
+            - Matter-Level (main tabs): October analyzed by matter names only
+            - The October data is already included in the Jan-Oct totals shown in other tabs
+            """)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.success(f"""
+                **🔬 Task-Level (October Sample):**
+                - Dataset: October 2025 only
+                - Entries: {len(detailed_df):,}
+                - Automatable: {task_auto:,.0f} hours
+                - Rate: {task_rate:.1f}%
+                - Precision: HIGH (task descriptions)
                 """)
+            
+            with col2:
+                # Calculate October data from main dataset for comparison
+                oct_df = filtered_df[filtered_df['Month'] == 10]
+                oct_auto = oct_df['Automatable_Hours'].sum() if len(oct_df) > 0 else 0
+                oct_total = oct_df['Billable Hours'].sum() if len(oct_df) > 0 else 0
+                oct_rate = (oct_auto / oct_total * 100) if oct_total > 0 else 0
                 
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.success(f"""
-                    **🔬 Task-Level (October Sample):**
-                    - Dataset: October 2025 only
-                    - Entries: {len(detailed_df):,}
-                    - Automatable: {task_auto:,.0f} hours
-                    - Rate: {task_rate:.1f}%
-                    - Precision: HIGH (task descriptions)
-                    """)
-                
-                with col2:
-                    # Calculate October data from main dataset for comparison
-                    oct_df = filtered_df[filtered_df['Month'] == 10]
-                    oct_auto = oct_df['Automatable_Hours'].sum() if len(oct_df) > 0 else 0
-                    oct_total = oct_df['Billable Hours'].sum() if len(oct_df) > 0 else 0
-                    oct_rate = (oct_auto / oct_total * 100) if oct_total > 0 else 0
-                    
-                    st.info(f"""
-                    **📊 Matter-Level (October Same Data):**
-                    - Dataset: October 2025 only  
-                    - Entries: {len(oct_df):,}
-                    - Automatable: {oct_auto:,.0f} hours
-                    - Rate: {oct_rate:.1f}%
-                    - Precision: MEDIUM (matter names)
-                    """)
-                
-                difference = abs(task_rate - automation_rate)
-                if task_rate > automation_rate:
-                    st.warning(f"⚡ Task-level analysis shows {difference:.1f} percentage points MORE automation potential!")
-                else:
-                    st.info(f"📉 Task-level analysis shows {difference:.1f} percentage points LESS automation potential (more conservative).")
-                
-                # Top opportunities
-                st.markdown("---")
-                st.subheader("🎯 Top Automation Opportunities (Task-Level)")
-                
-                high_auto_tasks = detailed_df[detailed_df['Task_Automation'] >= 0.85].groupby('Description').agg({
-                    'Billable Hours': 'sum',
-                    'Task_Automation': 'first'
-                }).reset_index().sort_values('Billable Hours', ascending=False).head(20)
-                
-                if len(high_auto_tasks) > 0:
-                    st.write(f"**{len(high_auto_tasks)} high-automation tasks (≥85%) with most hours:**")
-                    st.dataframe(
-                        high_auto_tasks.style.format({
-                            'Task_Automation': '{:.0%}',
-                            'Billable Hours': '{:.1f}'
-                        }),
-                        use_container_width=True,
-                        height=400
-                    )
-                else:
-                    st.info("No high-automation tasks found in this dataset.")
+                st.info(f"""
+                **📊 Matter-Level (October Same Data):**
+                - Dataset: October 2025 only  
+                - Entries: {len(oct_df):,}
+                - Automatable: {oct_auto:,.0f} hours
+                - Rate: {oct_rate:.1f}%
+                - Precision: MEDIUM (matter names)
+                """)
+            
+            difference = abs(task_rate - automation_rate)
+            if task_rate > automation_rate:
+                st.warning(f"⚡ Task-level analysis shows {difference:.1f} percentage points MORE automation potential!")
+            else:
+                st.info(f"📉 Task-level analysis shows {difference:.1f} percentage points LESS automation potential (more conservative).")
+            
+            # Top opportunities
+            st.markdown("---")
+            st.subheader("🎯 Top Automation Opportunities (Task-Level)")
+            
+            high_auto_tasks = detailed_df[detailed_df['Task_Automation'] >= 0.85].groupby('Description').agg({
+                'Billable Hours': 'sum',
+                'Task_Automation': 'first'
+            }).reset_index().sort_values('Billable Hours', ascending=False).head(20)
+            
+            if len(high_auto_tasks) > 0:
+                st.write(f"**{len(high_auto_tasks)} high-automation tasks (≥85%) with most hours:**")
+                st.dataframe(
+                    high_auto_tasks.style.format({
+                        'Task_Automation': '{:.0%}',
+                        'Billable Hours': '{:.1f}'
+                    }),
+                    use_container_width=True,
+                    height=400
+                )
+            else:
+                st.info("No high-automation tasks found in this dataset.")
             
             else:
                 st.error("❌ Could not load detailed CSV data.")
