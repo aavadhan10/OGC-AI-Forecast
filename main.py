@@ -1271,7 +1271,7 @@ def main():
                 line=dict(color='green', width=3)
             ))
             fig.update_layout(
-                title='Cumulative Cost Savings (Jan 2024-Nov 2025)',
+                title='Cumulative Cost Savings (Jan 2025-June 2025)',
                 height=400
             )
             st.plotly_chart(fig, use_container_width=True)
