@@ -1430,7 +1430,7 @@ def main():
         
         with col2:
             st.metric(
-                label="Rimon AI-Automatable",
+                label="OGC AI-Automatable",
                 value=f"{oli_automatable:,.0f}",
                 delta=f"{oli_rate:.1f}% of total"
             )
