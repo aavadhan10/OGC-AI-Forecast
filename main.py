@@ -206,9 +206,9 @@ LEGALBENCH_TASKS = {
     'General-Matters': {
         'description': 'General advice, consultation, and miscellaneous matters',
         'automation_potential': 0.65,
-        'keywords': ['general matters', 'general', 'advice', 'counsel', 'consultation',
-                    'miscellaneous', 'various', 'other'],
-        'examples': ['General advice', 'Consultations', 'Miscellaneous matters']
+        'keywords': ['general matters', 'general legal advice', 'general corporate',
+                    'miscellaneous', 'various', 'other matters'],
+        'examples': ['General legal advice', 'Miscellaneous matters']
     },
     
     # INTERNAL TIME (0% automation - not client work)
@@ -228,11 +228,14 @@ RIMON_OLI_BENCHMARK = {
         'automation_potential': 1.00,
         'keywords': [
             'general corporate', 'corporate matters', 'general representation',
-            'retainer', 'general matters', 'general', 'advice and counsel',
-            'corporate advice', 'general corporate advice'
+            'advice and counsel', 'corporate advice', 'general corporate advice',
+            'general legal advice', 'legal advice',
+            'nda review', 'contract review', 'agreement review', 'contract reviews',
+            'agreement reviews', 'document review', 'template review',
+            'standard agreement', 'routine agreement', 'form review'
         ],
         'description': 'Routine corporate counsel and document review',
-        'examples': ['General corporate matters', 'Routine advice', 'Document review']
+        'examples': ['General corporate matters', 'NDA Review', 'Contract review']
     },
     '100% AI Replaceable - Estate Planning': {
         'automation_potential': 1.00,
@@ -248,20 +251,28 @@ RIMON_OLI_BENCHMARK = {
         'keywords': [
             'acquisition', 'merger', 'purchase', 'sale', 'transaction',
             'financing', 'investment', 'fund', 'securities',
-            'lease', 'real estate', 'property'
+            'lease', 'real estate', 'property',
+            'nda', 'commercial', 'vendor', 'software', 'licensing agreement',
+            'service agreement', 'supply', 'procurement', 'corporate transaction',
+            'asset purchase', 'asset management', 'equity', 'joint venture',
+            'partnership agreement', 'monetization', 'distribution agreement'
         ],
         'description': 'M&A, financing, and complex transactional work',
-        'examples': ['Acquisitions', 'Financings', 'Real estate transactions']
+        'examples': ['Acquisitions', 'Financings', 'Real estate transactions', 'NDA drafting']
     },
     '70% AI Replaceable - IP & Regulatory': {
         'automation_potential': 0.70,
         'keywords': [
-            'patent', 'trademark', 'copyright', 'intellectual property',
+            'patent', 'trademark', 'copyright', 'intellectual property', 'intellectual prop',
+            'ip counsel', 'ip advice', 'ip matters', 'trade secret',
             'regulatory', 'compliance', 'permit', 'license',
-            'immigration', 'visa'
+            'immigration', 'visa',
+            'pharma', 'pharmaceutical', 'clinical', 'biotech', 'drug',
+            'data protection', 'privacy', 'dpo', 'gdpr', 'ccpa',
+            'trademark search', 'tm search', 'patent search', 'brand'
         ],
-        'description': 'IP prosecution and regulatory compliance',
-        'examples': ['Patent filings', 'Trademark prosecution', 'Regulatory compliance']
+        'description': 'IP prosecution, regulatory compliance, and data/pharma matters',
+        'examples': ['Patent filings', 'Trademark prosecution', 'Pharma regulatory', 'Privacy compliance']
     },
     '30% AI Replaceable - Litigation & Complex Matters': {
         'automation_potential': 0.30,
@@ -287,10 +298,11 @@ RIMON_OLI_BENCHMARK = {
         'automation_potential': 0.00,
         'keywords': [
             'internal time', 'vacation', 'pto', 'holiday', 'training',
-            'business development', 'marketing', 'admin'
+            'business development', 'marketing', 'admin',
+            'g&a', 'general and administrative', 'overhead'
         ],
         'description': 'Internal time and strategic work',
-        'examples': ['Internal meetings', 'Business development', 'Training']
+        'examples': ['Internal meetings', 'Business development', 'Training', 'G&A']
     }
 }
 
@@ -379,9 +391,18 @@ PG_OLI_DIRECT = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def classify_matter_legalbench(matter_name):
-    """Classify a matter using LegalBench framework"""
+def classify_matter_legalbench(matter_name, pg_fallback: str = ''):
+    """
+    Classify a matter using LegalBench framework.
+    If the matter name does not match any keyword, fall back to the attorney's
+    Practice Group label (pg_fallback) which is mapped via PG_LEGALBENCH_DIRECT.
+    """
     if pd.isna(matter_name):
+        # Try PG fallback before giving up
+        if pg_fallback:
+            pg_lower = str(pg_fallback).lower().strip()
+            if pg_lower in PG_LEGALBENCH_DIRECT:
+                return PG_LEGALBENCH_DIRECT[pg_lower]
         return 'General-Matters', 0.65
 
     matter_lower = str(matter_name).lower().strip()
@@ -390,7 +411,7 @@ def classify_matter_legalbench(matter_name):
     if matter_lower in PG_LEGALBENCH_DIRECT:
         return PG_LEGALBENCH_DIRECT[matter_lower]
 
-    # Score each category
+    # Score each category by keyword hits
     scores = {}
     for category, info in LEGALBENCH_TASKS.items():
         score = sum(1 for keyword in info['keywords'] if keyword in matter_lower)
@@ -401,14 +422,28 @@ def classify_matter_legalbench(matter_name):
         best_category = max(scores, key=scores.get)
         automation_potential = LEGALBENCH_TASKS[best_category]['automation_potential']
         return best_category, automation_potential
-    else:
-        return 'General-Matters', 0.65
+
+    # No keyword match — fall back to attorney's Practice Group
+    if pg_fallback:
+        pg_lower = str(pg_fallback).lower().strip()
+        if pg_lower in PG_LEGALBENCH_DIRECT:
+            return PG_LEGALBENCH_DIRECT[pg_lower]
+
+    return 'General-Matters', 0.65
 
 
-def classify_matter_oli(matter_name):
-    """Classify a matter using OLI Benchmark"""
+def classify_matter_oli(matter_name, pg_fallback: str = ''):
+    """
+    Classify a matter using OLI Benchmark.
+    If the matter name does not match any keyword, fall back to the attorney's
+    Practice Group label (pg_fallback) which is mapped via PG_OLI_DIRECT.
+    """
     if pd.isna(matter_name):
-        return 'Unclassified', 0.0
+        if pg_fallback:
+            pg_lower = str(pg_fallback).lower().strip()
+            if pg_lower in PG_OLI_DIRECT:
+                return PG_OLI_DIRECT[pg_lower]
+        return 'Unclassified / General Retainer', 0.40
 
     matter_lower = str(matter_name).lower().strip()
 
@@ -433,8 +468,15 @@ def classify_matter_oli(matter_name):
         best_category = max(scores, key=scores.get)
         automation_potential = RIMON_OLI_BENCHMARK[best_category]['automation_potential']
         return best_category, automation_potential
-    else:
-        return 'Unclassified', 0.0
+
+    # No keyword match — fall back to attorney's Practice Group
+    if pg_fallback:
+        pg_lower = str(pg_fallback).lower().strip()
+        if pg_lower in PG_OLI_DIRECT:
+            return PG_OLI_DIRECT[pg_lower]
+
+    # Generic retainer entries with no PG: conservative 40% baseline
+    return 'Unclassified / General Retainer', 0.40
 
 @st.cache_data
 def load_raw_year(csv_path: str) -> pd.DataFrame:
@@ -455,6 +497,8 @@ def load_raw_year(csv_path: str) -> pd.DataFrame:
     df['Billable Hours'] = df['Hours']
     df['Billable Amount'] = df['Amount']
     df['User Name'] = df['Associated Attorney']
+    # Carry the Practice Group label forward as a consistent column name
+    df['Attorney_PG'] = df['PG'].fillna('') if 'PG' in df.columns else ''
     df['Data_Source'] = 'raw'
     return df
 
@@ -610,6 +654,123 @@ def load_pivot_year(year: int) -> pd.DataFrame:
 
     return pd.DataFrame(records) if records else pd.DataFrame()
 
+@st.cache_data
+def load_clio_year(xlsx_path: str) -> pd.DataFrame:
+    """
+    Load a Clio Activities XLSX export and return individual time-entry records
+    matching the schema of the 2024 SIX_FULL_MOS data.
+
+    Matter names are extracted from the 'Matter Number' column, which Clio formats as
+    '{ID}-{Client Name}-{Matter Description}'.  The last segment (after the final '-')
+    is used as the Matter Name for AI classification — e.g. 'NDA Review 2025',
+    'Patent and Trademark', 'General Corporate'.
+
+    Hours are back-calculated from billing amounts using 2024 median rates per attorney
+    (same methodology as transform_clio_to_2025.py).
+    """
+    DEFAULT_RATE = 425.0
+    ATTORNEY_NAME_MAP = {"Eddie Litton": "W. Edwin Litton"}
+
+    if not os.path.exists(xlsx_path):
+        return pd.DataFrame()
+
+    try:
+        df = pd.read_excel(xlsx_path, sheet_name='Report')
+    except Exception:
+        return pd.DataFrame()
+
+    try:
+        # Keep hourly and flat-rate time entries only
+        time_types = {'Hourly time entry', 'Flat rate time entry'}
+        df = df[df['Type'].isin(time_types)].copy()
+
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+        df = df.dropna(subset=['Date'])
+        df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
+
+        # Normalise attorney names
+        df['User'] = df['User'].astype(str).str.strip().replace(ATTORNEY_NAME_MAP)
+
+        # Extract matter name: last '-'-delimited segment of Matter Number
+        df['Matter_Name'] = (
+            df['Matter Number']
+            .astype(str)
+            .str.rsplit('-', n=1)
+            .str[-1]
+            .str.strip()
+        )
+
+        # Build per-attorney rate table AND practice-group lookup from 2024 raw data
+        rate_table: dict = {}
+        pg_table: dict = {}
+        raw_2024_path = '2024/SIX_FULL_MOS_2024.csv'
+        if os.path.exists(raw_2024_path):
+            try:
+                df24 = pd.read_csv(raw_2024_path, low_memory=False)
+                df24['Rate'] = pd.to_numeric(df24['Rate'], errors='coerce')
+                time_rows = df24[(df24['Activity Type'] == 'Time') & (df24['Rate'] > 0)]
+                rate_table = time_rows.groupby('Associated Attorney')['Rate'].median().to_dict()
+                # Most common PG per attorney (mode)
+                if 'PG' in df24.columns:
+                    pg_rows = df24.dropna(subset=['PG'])
+                    pg_table = (
+                        pg_rows.groupby('Associated Attorney')['PG']
+                        .agg(lambda x: x.mode().iloc[0] if len(x.mode()) > 0 else '')
+                        .to_dict()
+                    )
+            except Exception:
+                pass
+
+        rates = df['User'].map(rate_table).fillna(DEFAULT_RATE)
+        rates = rates.where(rates > 0, DEFAULT_RATE)
+
+        # Back-calculate hours
+        hourly_mask = df['Type'] == 'Hourly time entry'
+        flat_mask   = df['Type'] == 'Flat rate time entry'
+        hours = pd.Series(0.0, index=df.index)
+        hours[hourly_mask] = (df.loc[hourly_mask, 'Total'] / rates[hourly_mask]).round(4)
+        hours[flat_mask]   = 1.0
+
+        activity_type = df['Type'].map({
+            'Hourly time entry':   'Time',
+            'Flat rate time entry': 'Fixed Fee',
+        }).fillna('Time')
+
+        pg_series = df['User'].map(pg_table).fillna('')
+
+        client_names = df['Client'].astype(str).str.strip()
+
+        out = pd.DataFrame({
+            'Service Date':        df['Date'].values,
+            'Date of Work':        df['Date'].values,
+            'Client Name':         client_names.values,
+            'Associated Attorney': df['User'].values,
+            'User Name':           df['User'].values,
+            # Matter Name = client name for display (matches 2024 convention)
+            'Matter Name':         client_names.values,
+            # Matter_Type = extracted Clio matter description, used for AI classification only
+            'Matter_Type':         df['Matter_Name'].values,
+            'Description':         '',
+            'Hours':               hours.values,
+            'Amount':              df['Total'].values,
+            'Activity Type':       activity_type.values,
+            'Year':                df['Date'].dt.year.values,
+            'Month':               df['Date'].dt.month.values,
+            'Month_Name':          df['Date'].dt.strftime('%B').values,
+            'Quarter':             df['Date'].dt.quarter.values,
+            'Billable Hours':      hours.values,
+            'Billable Amount':     df['Total'].values,
+            'Original_Hours':      hours.values,
+            'Attorney_PG':         pg_series.values,
+            'Data_Source':         'clio',
+        })
+
+        return out
+
+    except Exception:
+        return pd.DataFrame()
+
+
 def extract_keywords(matter_names):
     """Extract common keywords from matter names"""
     all_words = []
@@ -666,7 +827,25 @@ def main():
     
     st.markdown('<h1 class="main-header">⚖️ OGC Legal AI Automation Dashboard</h1>', unsafe_allow_html=True)
     st.markdown("### Outside GC - AI-Powered Efficiency Analysis (2024 – 2026 YTD)")
-    
+
+    st.warning(
+        "**📋 Data Source Change — Please Read Before Comparing Years**\n\n"
+        "The **2024** data comes from **LeanLaw**, where every time entry was recorded against a specific "
+        "client matter *and* included a free-text task description (e.g. *'Draft NDA – review redlines'*). "
+        "Hours and billing amounts are recorded directly. The 'Task-Level Deep Dive' tab is only available "
+        "for this year.\n\n"
+        "The **2025 and 2026** data comes from **Clio**. Individual time entries are loaded directly from "
+        "Clio exports; the matter type (e.g. *'NDA Review 2025'*, *'Patent and Trademark'*) is extracted "
+        "from each entry's matter identifier and used for AI classification. Hours are **back-calculated** "
+        "from billed amounts using each attorney's 2024 median hourly rate, since Clio's export does not "
+        "include recorded hours. Free-text task descriptions are not available for these years.\n\n"
+        "**AI classification** uses the same two-step method for all years: (1) keyword matching on the "
+        "matter name/type; (2) if no keyword match, the attorney's practice group is used as a fallback. "
+        "Entries logged under a generic *'General'* matter type — where no specific work type is recorded "
+        "in Clio — are assigned a conservative **40% automation baseline**. Adding descriptive matter "
+        "names in Clio would improve the accuracy of this analysis."
+    )
+
     # Sidebar with logout option
     st.sidebar.title("📊 Dashboard Controls")
     
@@ -690,17 +869,33 @@ def main():
         if fixed_fee_count > 0:
             st.sidebar.info(f"ℹ️ {fixed_fee_count:,} fixed fee entries (2024) counted as 1 hr")
 
-        # 2025 — pivot-based data
-        df_2025 = load_pivot_year(2025)
-        if len(df_2025) > 0:
+        # 2025 — Clio individual time entries (with matter names extracted from Matter Number)
+        clio_2025_path = 'RAW_DATA_AND_TRANSFORMATIONS/OGC Clio Activities 2025.xlsx'
+        if os.path.exists(clio_2025_path):
+            df_2025 = load_clio_year(clio_2025_path)
+            if not df_2025.empty and 'Year' in df_2025.columns:
+                df_2025 = df_2025[df_2025['Year'] == 2025].copy()
+            source_label_2025 = "Clio time entries"
+        else:
+            df_2025 = load_pivot_year(2025)
+            source_label_2025 = "synthesized entries"
+        if not df_2025.empty:
             all_dfs.append(df_2025)
-            st.sidebar.success(f"✅ 2025: {len(df_2025):,} synthesized entries loaded")
+            st.sidebar.success(f"✅ 2025: {len(df_2025):,} {source_label_2025} loaded")
 
-        # 2026 — pivot-based data (YTD)
-        df_2026 = load_pivot_year(2026)
-        if len(df_2026) > 0:
+        # 2026 — Clio individual time entries (YTD)
+        clio_2026_path = 'RAW_DATA_AND_TRANSFORMATIONS/OGC Clio Activities 1.1 to 5.29.26.xlsx'
+        if os.path.exists(clio_2026_path):
+            df_2026 = load_clio_year(clio_2026_path)
+            if not df_2026.empty and 'Year' in df_2026.columns:
+                df_2026 = df_2026[df_2026['Year'] == 2026].copy()
+            source_label_2026 = "Clio time entries"
+        else:
+            df_2026 = load_pivot_year(2026)
+            source_label_2026 = "synthesized entries"
+        if not df_2026.empty:
             all_dfs.append(df_2026)
-            st.sidebar.success(f"✅ 2026: {len(df_2026):,} synthesized entries (YTD) loaded")
+            st.sidebar.success(f"✅ 2026: {len(df_2026):,} {source_label_2026} (YTD) loaded")
 
         df = pd.concat(all_dfs, ignore_index=True)
 
@@ -731,27 +926,45 @@ def main():
     if selected_users:
         filtered_df = filtered_df[filtered_df['User Name'].isin(selected_users)]
     
-    # Detect whether description/task-level data is present in the current view
-    has_raw_data = (filtered_df.get('Data_Source', pd.Series(dtype=str)) == 'raw').any()
-    is_pivot_only = not has_raw_data
-    
-    # Classify tasks
+    # Detect data sources present in the current view
+    sources_present = set(filtered_df.get('Data_Source', pd.Series(dtype=str)).unique())
+    has_raw_data    = 'raw'   in sources_present   # 2024 LeanLaw entries (with Descriptions)
+    has_clio_data   = 'clio'  in sources_present   # 2025/2026 Clio entries (with Matter Names)
+    is_pivot_only   = not (has_raw_data or has_clio_data)
+
+    # Task descriptions exist only in 2024 raw data
+    has_detailed_data = has_raw_data
+
+    # Build classification inputs:
+    #   - Clio (2025/2026) entries: use Matter_Type (the extracted matter description)
+    #     as the primary classification key; fall back to Attorney_PG.
+    #   - Raw 2024 entries: use Matter Name (client company name); fall back to Attorney_PG.
+    _pg_col = filtered_df['Attorney_PG'].fillna('') if 'Attorney_PG' in filtered_df.columns else pd.Series('', index=filtered_df.index)
+    if 'Matter_Type' in filtered_df.columns:
+        _classif_col = filtered_df['Matter_Type'].where(
+            filtered_df.get('Data_Source', '') == 'clio',
+            filtered_df['Matter Name']
+        ).fillna(filtered_df['Matter Name'])
+    else:
+        _classif_col = filtered_df['Matter Name']
+
     with st.spinner("🤖 Analyzing matters for AI automation potential..."):
-        filtered_df[['Task_Category', 'Automation_Potential']] = filtered_df['Matter Name'].apply(
-            lambda x: pd.Series(classify_matter_legalbench(x))
-        )
+        _lb_results = [
+            classify_matter_legalbench(mn, pg)
+            for mn, pg in zip(_classif_col, _pg_col)
+        ]
+        filtered_df['Task_Category']      = [r[0] for r in _lb_results]
+        filtered_df['Automation_Potential'] = [r[1] for r in _lb_results]
     
     # Calculate automation hours
     filtered_df['Automatable_Hours'] = filtered_df['Billable Hours'] * filtered_df['Automation_Potential']
     filtered_df['Manual_Hours'] = filtered_df['Billable Hours'] - filtered_df['Automatable_Hours']
     
     # Main tabs
-    # Task-level descriptions are only available in raw 2024 data
-    has_detailed_data = has_raw_data
     if has_detailed_data:
         st.sidebar.success("✨ Task descriptions available! Check the 'Task-Level Deep Dive' tab.")
     else:
-        st.sidebar.info("ℹ️ Task-level detail unavailable for pivot-only data (2025/2026).")
+        st.sidebar.info("ℹ️ Task-level descriptions only available for 2024 data.")
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📈 Overview (LegalBench)", 
         "🎯 OLI Benchmark",
@@ -1109,21 +1322,37 @@ def main():
         **Note:** *Fixed fee entries are counted as 1 hour for analysis purposes.*
         """)
 
+        if has_clio_data and not has_raw_data:
+            # Explain the "General" retainer limitation for Clio-only views
+            general_pct = (
+                filtered_df['Matter Name'].str.lower().str.strip() == 'general'
+            ).mean() * 100
+            if general_pct > 20:
+                st.info(
+                    f"📌 **Data Granularity Note:** {general_pct:.0f}% of entries in this view have a "
+                    f"matter name of **'General'** — Clio's label for ongoing retainer work where no "
+                    f"specific matter type was recorded. These entries are classified as "
+                    f"**'Unclassified / General Retainer'** at a conservative 40% automation baseline. "
+                    f"Entries with descriptive matter names (NDA Review, Patent, Contract Review, etc.) "
+                    f"are classified at their specific tier. "
+                    f"Adding matter-level descriptions in Clio would significantly improve this analysis."
+                )
+
         if is_pivot_only:
             st.info(
-                "📌 **2025/2026 Data Note:** These years use attorney-level Practice Group (PG) labels "
-                "as matter names (e.g. 'Commercial & Tech Transactions', 'Intellectual Property'). "
-                "OLI tiers are assigned via a direct PG → tier mapping rather than keyword matching, "
-                "so numbers are methodologically consistent within each year. "
-                "Direct year-over-year OLI comparison with 2024 should be interpreted with caution — "
-                "2024 uses specific client matter names (90%+ unclassified), while 2025/2026 have full PG coverage."
+                "📌 **Data Note:** Aggregated practice-group data is being used as the matter name source. "
+                "OLI tiers are assigned via a direct PG → tier mapping. "
+                "Year-over-year comparisons should be interpreted with caution."
             )
         
-        # Classify using Rimon OLI
+        # Classify using OGC Benchmark — same Matter_Type / PG logic as LegalBench
         with st.spinner("🤖 Analyzing using OGC Benchmark..."):
-            filtered_df[['OLI_Category', 'OLI_Automation_Potential']] = filtered_df['Matter Name'].apply(
-                lambda x: pd.Series(classify_matter_oli(x))
-            )
+            _oli_results = [
+                classify_matter_oli(mn, pg)
+                for mn, pg in zip(_classif_col, _pg_col)
+            ]
+            filtered_df['OLI_Category']            = [r[0] for r in _oli_results]
+            filtered_df['OLI_Automation_Potential'] = [r[1] for r in _oli_results]
         
         filtered_df['OLI_Automatable_Hours'] = filtered_df['Billable Hours'] * filtered_df['OLI_Automation_Potential']
         filtered_df['OLI_Manual_Hours'] = filtered_df['Billable Hours'] - filtered_df['OLI_Automatable_Hours']
@@ -1345,7 +1574,9 @@ def main():
         st.markdown("---")
         st.subheader("🎯 Top Matters for AI Implementation")
         
-        matter_analysis = filtered_df[filtered_df['OLI_Category'] != 'Unclassified'].groupby('Matter Name').agg({
+        matter_analysis = filtered_df[
+            filtered_df['OLI_Category'] != '0% AI Replaceable - Internal & Strategic'
+        ].groupby('Matter Name').agg({
             'Billable Hours': 'sum',
             'OLI_Automatable_Hours': 'sum'
         }).reset_index()
