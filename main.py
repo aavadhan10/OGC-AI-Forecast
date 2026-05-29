@@ -6,7 +6,11 @@ from plotly.subplots import make_subplots
 import numpy as np
 from datetime import datetime
 import re
-from collections import Counter
+import os
+from collections import Counter, defaultdict
+
+MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+MONTH_NUM = {m: i+1 for i, m in enumerate(MONTHS)}
 
 # Page configuration
 st.set_page_config(
@@ -330,26 +334,69 @@ def classify_task_description(description):
         return best_category, TASK_LEVEL_AUTOMATION[best_category]['automation_potential']
     return 'General-Communication', 0.50
 
-@st.cache_data
-def check_for_detailed_csv():
-    """OGC has descriptions in main CSV - always return True"""
-    # OGC includes task descriptions in SIX_FULL_MOS.csv, not a separate file
-    return True
+# ── Direct Practice-Group → classification maps ───────────────────────────────
+# Used for 2025/2026 synthesized data where Matter Name is the attorney's PG label.
+# Keyword matching on PG names produces false positives (e.g. "Commercial Real Estate"
+# matches the "estate" keyword → incorrectly classified as 100% Estate Planning).
+# These explicit maps give accurate, defensible tier assignments.
+PG_LEGALBENCH_DIRECT = {
+    'commercial & tech transactions': ('Contract-Clause-Identification', 0.92),
+    'corporate & finance':            ('Corporate-Governance', 0.80),
+    'life sciences and healthcare':   ('Healthcare-Law', 0.74),
+    'intellectual property':          ('Intellectual-Property', 0.85),
+    'employment, labor & immigration':('Employment-Law', 0.80),
+    'cyber security & privacy':       ('Regulatory-Compliance', 0.83),
+    'retail, marketing & media':      ('Contract-Clause-Identification', 0.92),
+    'federal government contracts & procurement': ('Regulatory-Compliance', 0.83),
+    'exempt organizations & higher education':    ('Corporate-Governance', 0.80),
+    'commercial real estate':         ('Real-Estate', 0.75),
+    'dispute resolution':             ('Litigation-Matters', 0.75),
+    'tax':                            ('Tax-Law', 0.75),
+    'family law':                     ('Family-Law', 0.68),
+    'estate planning':                ('Estate-Planning', 0.88),
+    'securities':                     ('Securities-Compliance', 0.78),
+    'immigration':                    ('Immigration-Law', 0.78),
+}
+
+PG_OLI_DIRECT = {
+    'commercial & tech transactions': ('70% AI Replaceable - Transactional Work', 0.70),
+    'corporate & finance':            ('70% AI Replaceable - Transactional Work', 0.70),
+    'life sciences and healthcare':   ('70% AI Replaceable - IP & Regulatory', 0.70),
+    'intellectual property':          ('70% AI Replaceable - IP & Regulatory', 0.70),
+    'employment, labor & immigration':('30% AI Replaceable - Employment & Family Law', 0.30),
+    'cyber security & privacy':       ('70% AI Replaceable - IP & Regulatory', 0.70),
+    'retail, marketing & media':      ('70% AI Replaceable - Transactional Work', 0.70),
+    'federal government contracts & procurement': ('70% AI Replaceable - IP & Regulatory', 0.70),
+    'exempt organizations & higher education':    ('70% AI Replaceable - Transactional Work', 0.70),
+    'commercial real estate':         ('70% AI Replaceable - Transactional Work', 0.70),
+    'dispute resolution':             ('30% AI Replaceable - Litigation & Complex Matters', 0.30),
+    'tax':                            ('30% AI Replaceable - Employment & Family Law', 0.30),
+    'family law':                     ('30% AI Replaceable - Employment & Family Law', 0.30),
+    'estate planning':                ('100% AI Replaceable - Estate Planning', 1.00),
+    'securities':                     ('70% AI Replaceable - Transactional Work', 0.70),
+    'immigration':                    ('70% AI Replaceable - IP & Regulatory', 0.70),
+}
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 def classify_matter_legalbench(matter_name):
     """Classify a matter using LegalBench framework"""
     if pd.isna(matter_name):
         return 'General-Matters', 0.65
-    
-    matter_lower = matter_name.lower()
-    
+
+    matter_lower = str(matter_name).lower().strip()
+
+    # Direct PG mapping takes priority (avoids false keyword matches on PG labels)
+    if matter_lower in PG_LEGALBENCH_DIRECT:
+        return PG_LEGALBENCH_DIRECT[matter_lower]
+
     # Score each category
     scores = {}
     for category, info in LEGALBENCH_TASKS.items():
         score = sum(1 for keyword in info['keywords'] if keyword in matter_lower)
         if score > 0:
             scores[category] = score
-    
+
     if scores:
         best_category = max(scores, key=scores.get)
         automation_potential = LEGALBENCH_TASKS[best_category]['automation_potential']
@@ -357,17 +404,22 @@ def classify_matter_legalbench(matter_name):
     else:
         return 'General-Matters', 0.65
 
+
 def classify_matter_oli(matter_name):
-    """Classify a matter using  OLI Benchmark"""
+    """Classify a matter using OLI Benchmark"""
     if pd.isna(matter_name):
         return 'Unclassified', 0.0
-    
-    matter_lower = matter_name.lower()
-    
+
+    matter_lower = str(matter_name).lower().strip()
+
+    # Direct PG mapping takes priority (avoids false keyword matches on PG labels)
+    if matter_lower in PG_OLI_DIRECT:
+        return PG_OLI_DIRECT[matter_lower]
+
     # Check for internal time first (0% automation)
     if 'internal time' in matter_lower or 'vacation' in matter_lower:
         return '0% AI Replaceable - Internal & Strategic', 0.0
-    
+
     # Score each category
     scores = {}
     for category, info in RIMON_OLI_BENCHMARK.items():
@@ -376,7 +428,7 @@ def classify_matter_oli(matter_name):
         score = sum(1 for keyword in info['keywords'] if keyword in matter_lower)
         if score > 0:
             scores[category] = score
-    
+
     if scores:
         best_category = max(scores, key=scores.get)
         automation_potential = RIMON_OLI_BENCHMARK[best_category]['automation_potential']
@@ -385,39 +437,178 @@ def classify_matter_oli(matter_name):
         return 'Unclassified', 0.0
 
 @st.cache_data
-def load_data(csv_path):
-    """Load and preprocess the OGC CSV data"""
-    # OGC data has no header rows to skip
+def load_raw_year(csv_path: str) -> pd.DataFrame:
+    """Load and preprocess a raw SIX_FULL_MOS style CSV (2024 format)."""
     df = pd.read_csv(csv_path, low_memory=False)
-    
-    # Convert date to datetime (OGC uses 'Service Date')
     df['Service Date'] = pd.to_datetime(df['Service Date'], format='%m/%d/%y', errors='coerce')
-    
-    # Convert hours and amount to numeric
     df['Hours'] = pd.to_numeric(df['Hours'], errors='coerce').fillna(0)
     df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce').fillna(0)
-    
-    # Extract year, month, quarter
     df['Year'] = df['Service Date'].dt.year
     df['Month'] = df['Service Date'].dt.month
     df['Month_Name'] = df['Service Date'].dt.strftime('%B')
     df['Quarter'] = df['Service Date'].dt.quarter
-    
-    # Fill NaN in Matter Name and Description with 'Unknown'
     df['Matter Name'] = df['Matter Name'].fillna('Unknown')
     df['Description'] = df['Description'].fillna('Unknown')
-    
-    # Handle Fixed Fee entries - count as 1 hour for analysis
     df['Original_Hours'] = df['Hours'].copy()
     df.loc[df['Activity Type'] == 'Fixed Fee', 'Hours'] = 1.0
-    
-    # Create column aliases so rest of code works
     df['Date of Work'] = df['Service Date']
     df['Billable Hours'] = df['Hours']
     df['Billable Amount'] = df['Amount']
     df['User Name'] = df['Associated Attorney']
-    
+    df['Data_Source'] = 'raw'
     return df
+
+
+@st.cache_data
+def load_pivot_year(year: int) -> pd.DataFrame:
+    """
+    Load PIVOT_SOURCE_1 + ATTORNEY_CLIENTS for 2025 or 2026 and synthesize
+    time-entry records matching the schema of the raw 2024 data.
+    Hours are taken from PIVOT_SOURCE_1; billing amounts from ATTORNEY_CLIENTS
+    (allocated proportionally to each client from the attorney's monthly total).
+    The PG (Practice Group) field is used as the Matter Name for AI classification.
+    """
+    pivot_path = f'{year}/PIVOT_SOURCE_1_{year}.csv'
+    clients_path = f'{year}/ATTORNEY_CLIENTS_{year}.csv'
+
+    if not os.path.exists(pivot_path):
+        return pd.DataFrame()
+
+    # ── Load PIVOT_SOURCE_1 ──────────────────────────────────────────────────
+    try:
+        raw_check = pd.read_csv(pivot_path, nrows=25, header=None)
+        header_row = None
+        for idx, row in raw_check.iterrows():
+            if 'Associated Attorney' in str(row.iloc[0]):
+                header_row = idx
+                break
+        if header_row is None:
+            return pd.DataFrame()
+        pivot_df = pd.read_csv(pivot_path, skiprows=header_row, low_memory=False)
+        pivot_df = pivot_df.dropna(subset=['Associated Attorney'])
+        pivot_df = pivot_df[pivot_df['Associated Attorney'].astype(str).str.strip() != 'Associated Attorney']
+    except Exception:
+        return pd.DataFrame()
+
+    # Build attorney-month → hours lookup
+    atty_hours: dict = {}
+    atty_pg: dict = {}
+    for _, row in pivot_df.iterrows():
+        attorney = str(row.get('Associated Attorney', '')).strip()
+        if not attorney or attorney == 'nan':
+            continue
+        pg = str(row.get('PG', 'General Matters')).strip()
+        atty_pg[attorney] = pg if pg not in ('nan', '') else 'General Matters'
+        for m in MONTHS:
+            if m in pivot_df.columns:
+                h = pd.to_numeric(row.get(m, 0), errors='coerce')
+                if pd.notna(h) and h > 0:
+                    atty_hours[(attorney, MONTH_NUM[m])] = float(h)
+
+    # ── Load ATTORNEY_CLIENTS ────────────────────────────────────────────────
+    month_col_map: dict = {}
+    client_records: list = []
+
+    if os.path.exists(clients_path):
+        try:
+            raw_clients = pd.read_csv(clients_path, nrows=25, header=None)
+            data_start = None
+            for idx, row in raw_clients.iterrows():
+                row_vals = [str(v) for v in row.values]
+                if any(m in row_vals for m in MONTHS):
+                    for m in MONTHS:
+                        if m in row_vals:
+                            month_col_map[m] = row_vals.index(m)
+                if 'Client Name' in row_vals:
+                    data_start = idx + 1
+                    break
+
+            if data_start and month_col_map:
+                clients_full = pd.read_csv(
+                    clients_path, skiprows=data_start, header=None, low_memory=False
+                )
+                for _, row in clients_full.iterrows():
+                    client = str(row.iloc[0]).strip() if len(row) > 0 else ''
+                    attorney = str(row.iloc[1]).strip() if len(row) > 1 else ''
+                    if not client or client == 'nan' or not attorney or attorney == 'nan':
+                        continue
+                    for m, col_idx in month_col_map.items():
+                        if col_idx < len(row):
+                            amount = pd.to_numeric(row.iloc[col_idx], errors='coerce')
+                            if pd.notna(amount) and amount > 0:
+                                client_records.append({
+                                    'client': client,
+                                    'attorney': attorney,
+                                    'month_num': MONTH_NUM[m],
+                                    'amount': float(amount),
+                                })
+        except Exception:
+            pass
+
+    # ── Build synthetic records ──────────────────────────────────────────────
+    records: list = []
+
+    if client_records:
+        # Proportionally allocate attorney hours across clients by billing share
+        atty_month_total: dict = defaultdict(float)
+        for r in client_records:
+            atty_month_total[(r['attorney'], r['month_num'])] += r['amount']
+
+        for r in client_records:
+            atty = r['attorney']
+            m_num = r['month_num']
+            total_hours = atty_hours.get((atty, m_num), 0.0)
+            total_amount = atty_month_total.get((atty, m_num), 1.0)
+            hours = total_hours * (r['amount'] / total_amount) if total_amount > 0 else 0.0
+            pg = atty_pg.get(atty, 'General Matters')
+            service_date = pd.Timestamp(year=year, month=m_num, day=1)
+            records.append({
+                'Service Date': service_date,
+                'Date of Work': service_date,
+                'Client Name': r['client'],
+                'Associated Attorney': atty,
+                'User Name': atty,
+                'Matter Name': pg,
+                'Description': '',
+                'Hours': hours,
+                'Amount': r['amount'],
+                'Activity Type': 'Time',
+                'Year': year,
+                'Month': m_num,
+                'Month_Name': service_date.strftime('%B'),
+                'Quarter': (m_num - 1) // 3 + 1,
+                'Billable Hours': hours,
+                'Billable Amount': r['amount'],
+                'Original_Hours': hours,
+                'Data_Source': 'pivot',
+            })
+    else:
+        # Fallback: attorney-level records only (no client detail)
+        for (attorney, month_num), hours in atty_hours.items():
+            pg = atty_pg.get(attorney, 'General Matters')
+            service_date = pd.Timestamp(year=year, month=month_num, day=1)
+            records.append({
+                'Service Date': service_date,
+                'Date of Work': service_date,
+                'Client Name': 'Multiple Clients',
+                'Associated Attorney': attorney,
+                'User Name': attorney,
+                'Matter Name': pg,
+                'Description': '',
+                'Hours': hours,
+                'Amount': 0.0,
+                'Activity Type': 'Time',
+                'Year': year,
+                'Month': month_num,
+                'Month_Name': service_date.strftime('%B'),
+                'Quarter': (month_num - 1) // 3 + 1,
+                'Billable Hours': hours,
+                'Billable Amount': 0.0,
+                'Original_Hours': hours,
+                'Data_Source': 'pivot',
+            })
+
+    return pd.DataFrame(records) if records else pd.DataFrame()
 
 def extract_keywords(matter_names):
     """Extract common keywords from matter names"""
@@ -436,52 +627,37 @@ def extract_keywords(matter_names):
     return Counter(all_words).most_common(30)
 
 def check_password():
-    """Returns `True` if the user had the correct password."""
-    
-    def password_entered():
-        """Checks whether a password entered by the user is correct."""
-        if st.session_state["password"] == "AIOGC2026":
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
+    """Returns `True` if the user has entered the correct password."""
 
-    if "password_correct" not in st.session_state:
-        st.markdown('<h1 class="main-header">⚖️ OGC Legal AI Automation Dashboard</h1>', unsafe_allow_html=True)
-        st.markdown("### 🔐 Secure Access Required")
-        st.markdown("---")
-        
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.text_input(
-                "Enter Password", 
-                type="password", 
-                on_change=password_entered, 
-                key="password",
-                help="Contact your administrator for access"
-            )
-            st.info("💡 This dashboard contains confidential firm data and automation analysis.")
-        return False
-    
-    elif not st.session_state["password_correct"]:
-        st.markdown('<h1 class="main-header">⚖️ OGC Legal AI Automation Dashboard</h1>', unsafe_allow_html=True)
-        st.markdown("### 🔐 Secure Access Required")
-        st.markdown("---")
-        
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.text_input(
-                "Enter Password", 
-                type="password", 
-                on_change=password_entered, 
-                key="password",
-                help="Contact your administrator for access"
-            )
-            st.error("❌ Incorrect password. Please try again.")
-        return False
-    
-    else:
+    if st.session_state.get("password_correct", False):
         return True
+
+    st.markdown('<h1 class="main-header">⚖️ OGC Legal AI Automation Dashboard</h1>', unsafe_allow_html=True)
+    st.markdown("### 🔐 Secure Access Required")
+    st.markdown("---")
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        # Use a form so the submission is isolated and cannot be triggered
+        # by other widget interactions (e.g. the year dropdown).
+        with st.form("login_form"):
+            pwd = st.text_input(
+                "Enter Password",
+                type="password",
+                help="Contact your administrator for access"
+            )
+            submitted = st.form_submit_button("🔓 Login")
+
+        if submitted:
+            if pwd == "AIOGC2026":
+                st.session_state["password_correct"] = True
+                st.rerun()
+            else:
+                st.error("❌ Incorrect password. Please try again.")
+
+        st.info("💡 This dashboard contains confidential firm data and automation analysis.")
+
+    return False
 
 def main():
     # Check password first
@@ -489,7 +665,7 @@ def main():
         return
     
     st.markdown('<h1 class="main-header">⚖️ OGC Legal AI Automation Dashboard</h1>', unsafe_allow_html=True)
-    st.markdown("### Outside GC - AI-Powered Efficiency Analysis (Jan 2024-Nov 2025)")
+    st.markdown("### Outside GC - AI-Powered Efficiency Analysis (2024 – 2026 YTD)")
     
     # Sidebar with logout option
     st.sidebar.title("📊 Dashboard Controls")
@@ -500,19 +676,34 @@ def main():
     
     st.sidebar.markdown("---")
     
-    # Load data
+    # Load all available years
     try:
-        csv_path = './data/SIX_FULL_MOS.csv'
-        import os
-        if not os.path.exists(csv_path):
-            csv_path = 'SIX_FULL_MOS.csv'
-        df = load_data(csv_path)
-        
-        st.sidebar.success(f"✅ Loaded {len(df):,} time entries")
-        
-        fixed_fee_count = (df['Activity Type'] == 'Fixed Fee').sum()
+        all_dfs = []
+
+        # 2024 — raw time-entry data (filter to 2024 only to avoid overlap with pivot data)
+        raw_2024_path = '2024/SIX_FULL_MOS_2024.csv'
+        df_2024 = load_raw_year(raw_2024_path)
+        df_2024 = df_2024[df_2024['Year'] == 2024].copy()
+        all_dfs.append(df_2024)
+        st.sidebar.success(f"✅ 2024: {len(df_2024):,} time entries loaded")
+        fixed_fee_count = (df_2024['Activity Type'] == 'Fixed Fee').sum()
         if fixed_fee_count > 0:
-            st.sidebar.info(f"ℹ️ {fixed_fee_count:,} fixed fee entries counted as 1 hour each")
+            st.sidebar.info(f"ℹ️ {fixed_fee_count:,} fixed fee entries (2024) counted as 1 hr")
+
+        # 2025 — pivot-based data
+        df_2025 = load_pivot_year(2025)
+        if len(df_2025) > 0:
+            all_dfs.append(df_2025)
+            st.sidebar.success(f"✅ 2025: {len(df_2025):,} synthesized entries loaded")
+
+        # 2026 — pivot-based data (YTD)
+        df_2026 = load_pivot_year(2026)
+        if len(df_2026) > 0:
+            all_dfs.append(df_2026)
+            st.sidebar.success(f"✅ 2026: {len(df_2026):,} synthesized entries (YTD) loaded")
+
+        df = pd.concat(all_dfs, ignore_index=True)
+
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
         return
@@ -520,18 +711,29 @@ def main():
     # Filters
     st.sidebar.subheader("🔍 Filters")
     
-    # Year filter
-    years = sorted(df['Year'].dropna().unique())
-    selected_years = st.sidebar.multiselect("Select Years", years, default=years)
+    # Year filter — dropdown instead of multiselect
+    available_years = sorted(df['Year'].dropna().unique().astype(int))
+    year_options = ["All Years"] + [str(y) for y in available_years]
+    selected_year_label = st.sidebar.selectbox("📅 Select Year", year_options, index=0)
+
+    if selected_year_label == "All Years":
+        year_filtered_df = df.copy()
+    else:
+        selected_year_int = int(selected_year_label)
+        year_filtered_df = df[df['Year'] == selected_year_int].copy()
     
     # User filter
-    users = sorted(df['User Name'].dropna().unique())
+    users = sorted(year_filtered_df['User Name'].dropna().unique())
     selected_users = st.sidebar.multiselect("Select Users", users, default=[])
     
     # Apply filters
-    filtered_df = df[df['Year'].isin(selected_years)]
+    filtered_df = year_filtered_df.copy()
     if selected_users:
         filtered_df = filtered_df[filtered_df['User Name'].isin(selected_users)]
+    
+    # Detect whether description/task-level data is present in the current view
+    has_raw_data = (filtered_df.get('Data_Source', pd.Series(dtype=str)) == 'raw').any()
+    is_pivot_only = not has_raw_data
     
     # Classify tasks
     with st.spinner("🤖 Analyzing matters for AI automation potential..."):
@@ -544,12 +746,12 @@ def main():
     filtered_df['Manual_Hours'] = filtered_df['Billable Hours'] - filtered_df['Automatable_Hours']
     
     # Main tabs
-    # Check for detailed CSV
-    # OGC always has task descriptions in main CSV
-    detailed_csv_path = check_for_detailed_csv()
-    has_detailed_data = True  # Always True for OGC
-    
-    st.sidebar.success("✨ Task descriptions available! Check the 'Task-Level Deep Dive' tab.")
+    # Task-level descriptions are only available in raw 2024 data
+    has_detailed_data = has_raw_data
+    if has_detailed_data:
+        st.sidebar.success("✨ Task descriptions available! Check the 'Task-Level Deep Dive' tab.")
+    else:
+        st.sidebar.info("ℹ️ Task-level detail unavailable for pivot-only data (2025/2026).")
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📈 Overview (LegalBench)", 
         "🎯 OLI Benchmark",
@@ -568,7 +770,7 @@ def main():
         This analysis is based on the **LegalBench framework** adapted for OGC's matter-based time entries. 
         Each matter type has been assigned an automation potential based on current AI capabilities.
         
-        **Note:** *Fixed fee entries are counted as 1 hour for analysis purposes. Analysis based on Jan 2024-Nov 2025 data.*
+        **Note:** *Fixed fee entries are counted as 1 hour for analysis purposes. 2025/2026 entries are synthesized from monthly attorney-level pivot data with billing amounts allocated proportionally by client.*
         """)
         
         with st.expander("📊 **How We Calculate Your Automation Potential**", expanded=False):
@@ -903,9 +1105,19 @@ def main():
         ### 📊 OGC AI Automation Assessment
         This tab uses **OGC Benchmark** - a custom assessment tailored to OGC's specific 
         practice areas and matter types.
-        
+
         **Note:** *Fixed fee entries are counted as 1 hour for analysis purposes.*
         """)
+
+        if is_pivot_only:
+            st.info(
+                "📌 **2025/2026 Data Note:** These years use attorney-level Practice Group (PG) labels "
+                "as matter names (e.g. 'Commercial & Tech Transactions', 'Intellectual Property'). "
+                "OLI tiers are assigned via a direct PG → tier mapping rather than keyword matching, "
+                "so numbers are methodologically consistent within each year. "
+                "Direct year-over-year OLI comparison with 2024 should be interpreted with caution — "
+                "2024 uses specific client matter names (90%+ unclassified), while 2025/2026 have full PG coverage."
+            )
         
         # Classify using Rimon OLI
         with st.spinner("🤖 Analyzing using OGC Benchmark..."):
@@ -1271,16 +1483,18 @@ def main():
                 line=dict(color='green', width=3)
             ))
             fig.update_layout(
-                title='Cumulative Cost Savings (Jan 2025-June 2025)',
-                height=400
-            )
+                    title='Cumulative Cost Savings Over Time',
+                    height=400
+                )
             st.plotly_chart(fig, use_container_width=True)
     
     # TAB 4: Predictions
     with tab4:
-        st.header("🔮 2025 Projections (Jan 2025-June 2025 Data)")
+        # Use the most recent year with data for projections
+        latest_year = int(filtered_df['Year'].max()) if len(filtered_df) > 0 else 2024
+        st.header(f"🔮 {latest_year} Projections")
         
-        current_data = filtered_df[filtered_df['Year'] == 2025]
+        current_data = filtered_df[filtered_df['Year'] == latest_year]
         
         if len(current_data) > 0:
             latest_month = current_data['Month'].max()
@@ -1377,7 +1591,7 @@ def main():
                 ))
                 
                 fig.update_layout(
-                    title='2025 Monthly Hours Projection',
+                    title=f'{latest_year} Monthly Hours Projection',
                     barmode='group',
                     height=400
                 )
@@ -1479,7 +1693,7 @@ def main():
                     height=400
                 )
         else:
-            st.warning("No 2025 data for projections")
+            st.warning(f"No {latest_year} data available for projections.")
     
     # TAB 5: Definitions
     with tab5:
@@ -1525,28 +1739,28 @@ def main():
     # ========================================================================
     if has_detailed_data:
         with tab6:
-            st.header("🔬 Task-Level Deep Dive: October 2025 Sample")
+            st.header("🔬 Task-Level Deep Dive: 2024 Raw Data")
             
             st.markdown("""
-            ### 🎯 Ultra-Precise Automation Analysis (October Data)
+            ### 🎯 Ultra-Precise Automation Analysis (2024 Raw Data)
             
-            **⚠️ Note:** This analyzes October 2025 data only (16K entries), which is ALREADY INCLUDED 
-            in the main Jan-Sep dataset. This tab shows what's possible with detailed task descriptions.
-            
-            This tab uses **actual task descriptions** for much more accurate automation scoring.
+            This tab uses **actual task descriptions** from the 2024 raw time-entry data for much
+            more accurate automation scoring than the matter-name approach used in other tabs.
             
             **Examples from your data:**
             - "Email regarding status" → 92% automatable
             - "Review and analyze agreement" → 85% automatable
             - "Telephone conference with client" → 45% automatable
             - "Negotiate settlement" → 25% automatable
+            
+            **Note:** Task-level detail is only available for 2024. Select 2024 or All Years to use this tab.
             """)
             
             st.info("""
             💡 **What This Tab Shows:**
-            
-            This analyzes ALL your time entries using detailed task descriptions from the Description column.
-            
+
+            This analyzes 2024 time entries using detailed task descriptions from the Description column.
+
             This tab demonstrates:
             - How much MORE PRECISE we can be with detailed task descriptions
             - What automation looks like at the task level vs matter level
@@ -1695,18 +1909,17 @@ def main():
             st.subheader("📊 Task-Level vs Matter-Level Comparison")
             
             st.warning("""
-            **⚠️ Important:** Both analyses use the SAME October 2025 data:
-            - Task-Level (this tab): October analyzed by detailed task descriptions
-            - Matter-Level (main tabs): October analyzed by matter names only
-            - The October data is already included in the Jan-Oct totals shown in other tabs
+            **⚠️ Important:** Both analyses use the same 2024 raw data:
+            - Task-Level (this tab): Analyzed by detailed task descriptions
+            - Matter-Level (main tabs): Analyzed by matter names only
             """)
             
             col1, col2 = st.columns(2)
             
             with col1:
                 st.success(f"""
-                **🔬 Task-Level (October Sample):**
-                - Dataset: October 2025 only
+                **🔬 Task-Level (2024 Raw Data):**
+                - Dataset: 2024 raw time entries
                 - Entries: {len(detailed_df):,}
                 - Automatable: {task_auto:,.0f} hours
                 - Rate: {task_rate:.1f}%
@@ -1714,18 +1927,22 @@ def main():
                 """)
             
             with col2:
-                # Calculate October data from main dataset for comparison
-                oct_df = filtered_df[filtered_df['Month'] == 10]
-                oct_auto = oct_df['Automatable_Hours'].sum() if len(oct_df) > 0 else 0
-                oct_total = oct_df['Billable Hours'].sum() if len(oct_df) > 0 else 0
-                oct_rate = (oct_auto / oct_total * 100) if oct_total > 0 else 0
-                
+                # Matter-level for same 2024 raw data
+                matter_auto = filtered_df.loc[
+                    filtered_df['Data_Source'] == 'raw', 'Automatable_Hours'
+                ].sum() if 'Automatable_Hours' in filtered_df.columns else 0
+                matter_total = filtered_df.loc[
+                    filtered_df['Data_Source'] == 'raw', 'Billable Hours'
+                ].sum()
+                matter_rate = (matter_auto / matter_total * 100) if matter_total > 0 else 0
+                raw_count = (filtered_df['Data_Source'] == 'raw').sum()
+
                 st.info(f"""
-                **📊 Matter-Level (October Same Data):**
-                - Dataset: October 2025 only  
-                - Entries: {len(oct_df):,}
-                - Automatable: {oct_auto:,.0f} hours
-                - Rate: {oct_rate:.1f}%
+                **📊 Matter-Level (2024 Raw Data):**
+                - Dataset: 2024 raw time entries
+                - Entries: {raw_count:,}
+                - Automatable: {matter_auto:,.0f} hours
+                - Rate: {matter_rate:.1f}%
                 - Precision: MEDIUM (matter names)
                 """)
             
@@ -1756,6 +1973,17 @@ def main():
                 )
             else:
                 st.info("No high-automation tasks found in this dataset.")
+
+
+    else:
+        with tab6:
+            st.header("🔬 Task-Level Deep Dive")
+            st.info(
+                "Task-level analysis requires the 2024 raw time-entry data (which includes "
+                "individual task descriptions). The currently selected year filter returns "
+                "only 2025/2026 aggregate data.\n\n"
+                "Select **All Years** or **2024** in the sidebar to enable this tab."
+            )
 
 
 if __name__ == "__main__":
