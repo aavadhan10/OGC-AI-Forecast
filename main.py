@@ -12,6 +12,10 @@ from collections import Counter, defaultdict
 MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 MONTH_NUM = {m: i+1 for i, m in enumerate(MONTHS)}
 
+# Resolve all data paths relative to this script so the app works regardless of
+# which directory `streamlit run` is invoked from.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Page configuration
 st.set_page_config(
     page_title="OGC Legal AI Automation Dashboard",
@@ -512,8 +516,8 @@ def load_pivot_year(year: int) -> pd.DataFrame:
     (allocated proportionally to each client from the attorney's monthly total).
     The PG (Practice Group) field is used as the Matter Name for AI classification.
     """
-    pivot_path = f'{year}/PIVOT_SOURCE_1_{year}.csv'
-    clients_path = f'{year}/ATTORNEY_CLIENTS_{year}.csv'
+    pivot_path = os.path.join(BASE_DIR, f'{year}/PIVOT_SOURCE_1_{year}.csv')
+    clients_path = os.path.join(BASE_DIR, f'{year}/ATTORNEY_CLIENTS_{year}.csv')
 
     if not os.path.exists(pivot_path):
         return pd.DataFrame()
@@ -703,7 +707,7 @@ def load_clio_year(xlsx_path: str) -> pd.DataFrame:
         # Build per-attorney rate table AND practice-group lookup from 2024 raw data
         rate_table: dict = {}
         pg_table: dict = {}
-        raw_2024_path = '2024/SIX_FULL_MOS_2024.csv'
+        raw_2024_path = os.path.join(BASE_DIR, '2024/SIX_FULL_MOS_2024.csv')
         if os.path.exists(raw_2024_path):
             try:
                 df24 = pd.read_csv(raw_2024_path, low_memory=False)
@@ -860,7 +864,7 @@ def main():
         all_dfs = []
 
         # 2024 — raw time-entry data (filter to 2024 only to avoid overlap with pivot data)
-        raw_2024_path = '2024/SIX_FULL_MOS_2024.csv'
+        raw_2024_path = os.path.join(BASE_DIR, '2024/SIX_FULL_MOS_2024.csv')
         df_2024 = load_raw_year(raw_2024_path)
         df_2024 = df_2024[df_2024['Year'] == 2024].copy()
         all_dfs.append(df_2024)
@@ -870,7 +874,7 @@ def main():
             st.sidebar.info(f"ℹ️ {fixed_fee_count:,} fixed fee entries (2024) counted as 1 hr")
 
         # 2025 — Clio individual time entries (with matter names extracted from Matter Number)
-        clio_2025_path = 'RAW_DATA_AND_TRANSFORMATIONS/OGC Clio Activities 2025.xlsx'
+        clio_2025_path = os.path.join(BASE_DIR, 'RAW_DATA_AND_TRANSFORMATIONS/OGC Clio Activities 2025.xlsx')
         if os.path.exists(clio_2025_path):
             df_2025 = load_clio_year(clio_2025_path)
             if not df_2025.empty and 'Year' in df_2025.columns:
@@ -884,7 +888,7 @@ def main():
             st.sidebar.success(f"✅ 2025: {len(df_2025):,} {source_label_2025} loaded")
 
         # 2026 — Clio individual time entries (YTD)
-        clio_2026_path = 'RAW_DATA_AND_TRANSFORMATIONS/OGC Clio Activities 1.1 to 5.29.26.xlsx'
+        clio_2026_path = os.path.join(BASE_DIR, 'RAW_DATA_AND_TRANSFORMATIONS/OGC Clio Activities 1.1 to 5.29.26.xlsx')
         if os.path.exists(clio_2026_path):
             df_2026 = load_clio_year(clio_2026_path)
             if not df_2026.empty and 'Year' in df_2026.columns:
