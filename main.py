@@ -438,49 +438,33 @@ def classify_matter_legalbench(matter_name, pg_fallback: str = ''):
 
 def classify_matter_oli(matter_name, pg_fallback: str = ''):
     """
-    Classify a matter using OLI Benchmark.
-    If the matter name does not match any keyword, fall back to the attorney's
-    Practice Group label (pg_fallback) which is mapped via PG_OLI_DIRECT.
+    Classify a matter using the OLI Benchmark 3-step logic:
+      1. Hard-coded zero check: internal time / vacation → 0% immediately.
+      2. Keyword scoring: highest hit-count tier wins.
+      3. No match → "Unclassified", 0.0.
     """
     if pd.isna(matter_name):
-        if pg_fallback:
-            pg_lower = str(pg_fallback).lower().strip()
-            if pg_lower in PG_OLI_DIRECT:
-                return PG_OLI_DIRECT[pg_lower]
-        return 'Unclassified / General Retainer', 0.40
+        return 'Unclassified', 0.0
 
     matter_lower = str(matter_name).lower().strip()
 
-    # Direct PG mapping takes priority (avoids false keyword matches on PG labels)
-    if matter_lower in PG_OLI_DIRECT:
-        return PG_OLI_DIRECT[matter_lower]
-
-    # Check for internal time first (0% automation)
+    # Step 1 — hard-coded zero check (no further scoring)
     if 'internal time' in matter_lower or 'vacation' in matter_lower:
         return '0% AI Replaceable - Internal & Strategic', 0.0
 
-    # Score each category
+    # Step 2 — keyword scoring across all tiers
     scores = {}
     for category, info in RIMON_OLI_BENCHMARK.items():
-        if category == '0% AI Replaceable - Internal & Strategic':
-            continue
         score = sum(1 for keyword in info['keywords'] if keyword in matter_lower)
         if score > 0:
             scores[category] = score
 
     if scores:
         best_category = max(scores, key=scores.get)
-        automation_potential = RIMON_OLI_BENCHMARK[best_category]['automation_potential']
-        return best_category, automation_potential
+        return best_category, RIMON_OLI_BENCHMARK[best_category]['automation_potential']
 
-    # No keyword match — fall back to attorney's Practice Group
-    if pg_fallback:
-        pg_lower = str(pg_fallback).lower().strip()
-        if pg_lower in PG_OLI_DIRECT:
-            return PG_OLI_DIRECT[pg_lower]
-
-    # Generic retainer entries with no PG: conservative 40% baseline
-    return 'Unclassified / General Retainer', 0.40
+    # Step 3 — no match
+    return 'Unclassified', 0.0
 
 @st.cache_data
 def load_raw_year(csv_path: str) -> pd.DataFrame:
@@ -1336,7 +1320,7 @@ def main():
                     f"📌 **Data Granularity Note:** {general_pct:.0f}% of entries in this view have a "
                     f"matter name of **'General'** — Clio's label for ongoing retainer work where no "
                     f"specific matter type was recorded. These entries are classified as "
-                    f"**'Unclassified / General Retainer'** at a conservative 40% automation baseline. "
+                    f"**'Unclassified'** (0% automatable, excluded from tier charts). "
                     f"Entries with descriptive matter names (NDA Review, Patent, Contract Review, etc.) "
                     f"are classified at their specific tier. "
                     f"Adding matter-level descriptions in Clio would significantly improve this analysis."
